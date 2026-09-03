@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ArkDownloader</string>
+    <string name="channel_download">下载任务</string>
+    <string name="channel_complete">下载完成</string>
+    <string name="notification_downloading">正在下载</string>
+    <string name="notification_complete">下载完成</string>
+</resources>
