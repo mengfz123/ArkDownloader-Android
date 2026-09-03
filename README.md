@@ -1,19 +1,18 @@
 # ArkDownloader Android
 
-面向 Android 的**原生**多线程分片下载器（Kotlin + Jetpack Compose），与 [ArkDownloader](https://github.com/mengfz123/ArkDownloader) 桌面版 / [Mobile](https://github.com/mengfz123/ArkDownloader-Mobile) 功能集对齐：百度网盘直链友好、断点续传、前台服务保活，并提供 Gopeed 风格本地 RPC。
+面向 Android 的**原生**多线程分片下载器（Kotlin + Jetpack Compose），与 [ArkDownloader](https://github.com/mengfz123/ArkDownloader) 桌面版 / [Mobile](https://github.com/mengfz123/ArkDownloader-Mobile) 功能集对齐：百度网盘直链友好、断点续传、前台服务保活， RPC。
 
 **当前版本：** 1.0.6
 
 ---
 
-## 为什么选原生版
 
 | 特色 | 说明 |
 |------|------|
 | Kotlin + Compose | Material 3，无 WebView / uni-app 壳 |
 | 分片多线程 | OkHttp Range；连接数 1–16，分片 1–5 MB |
 | 前台服务 | 下载保活，支持完成通知 |
-| 本地 RPC | 默认端口 `18766`，路径与桌面 / Mobile 一致 |
+| 本地 RPC | 默认端口 `18766` |
 
 ---
 
@@ -61,12 +60,6 @@ APK：`app/build/outputs/apk/debug/app-debug.apk`
 旧路径 `/api/*` 仍作别名。鉴权：`Authorization: Bearer <token>` 或 `X-ArkDownloader-Token`（`/health` 无需鉴权）。
 
 ---
-
-## 相关项目
-
-- [ArkDownloader](https://github.com/mengfz123/ArkDownloader) — Windows 桌面版
-- [ArkDownloader-Mobile](https://github.com/mengfz123/ArkDownloader-Mobile) — uni-app Android 版
-
 ---
 
 ## 许可证
