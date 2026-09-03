@@ -1,6 +1,11 @@
 # ArkDownloader Android
 
-面向 Android 的**原生**多线程分片下载器（Kotlin + Jetpack Compose），与 [ArkDownloader](https://github.com/mengfz123/ArkDownloader) 桌面版 / [Mobile](https://github.com/mengfz123/ArkDownloader-Mobile) 功能集对齐：百度网盘直链友好、断点续传、前台服务保活， RPC。
+面向 Android 的**原生**多线程分片下载器（Kotlin + Jetpack Compose）百度网盘直链友好、断点续传、前台服务保活， RPC。
+结合 网盘解析网站 http://clouds.arkdream.top 实现百度网盘，夸克网盘不限速下载
+<img width="1080" height="2414" alt="3c64e90c03b18b4a68e0b0a29fd4b99b" src="https://github.com/user-attachments/assets/df0283b7-26af-4bce-98ea-594a62809738" />
+
+<img width="1240" height="2772" alt="f27264ec024bc1ac15f0377b91f14538" src="https://github.com/user-attachments/assets/73db778f-b853-4908-9c08-0c870d6cea7a" />
+
 
 **当前版本：** 1.0.6
 
