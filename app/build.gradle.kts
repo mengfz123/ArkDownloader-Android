@@ -14,8 +14,8 @@ android {
         applicationId = "com.ark.downloader"
         minSdk = 26
         targetSdk = 37
-        versionCode = 6
-        versionName = "1.0.6"
+        versionCode = 12
+        versionName = "1.0.12"
     }
 
     buildTypes {

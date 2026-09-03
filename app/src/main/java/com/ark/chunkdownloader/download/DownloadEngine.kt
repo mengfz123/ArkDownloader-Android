@@ -43,7 +43,7 @@ import kotlin.math.max
  * High-throughput multi-connection engine.
  *
  * - Baidu PCS/CDN: size/fin from URL, netdisk UA, up to 8 workers
- * - Direct Range writes into one pre-allocated staging file (no .partN merge)
+ * - Direct Range writes into one pre-allocated final file (no .partN merge / post-copy)
  * - Sidecar checkpoint of completed chunk indices for resume
  * - Pause cancels in-flight OkHttp Calls and clears speed
  * - All work on [Dispatchers.IO]; UI observes Room / StateFlow
@@ -85,9 +85,10 @@ class DownloadEngine(
         )
         val kind = resolved.kind
         val id = UUID.randomUUID().toString()
-        val dir = saveDir?.takeIf { it.isNotBlank() } ?: settings.defaultSaveDir.ifBlank {
-            FilePublish.defaultDownloadDir(context).absolutePath
-        }
+        val dir = FilePublish.resolveWritableDir(
+            context,
+            saveDir?.takeIf { it.isNotBlank() } ?: settings.defaultSaveDir.ifBlank { null }
+        )
         val mergedHeaders = FormatUtil.parseHeaders(settings.defaultHeadersJson).toMutableMap()
         headers?.forEach { mergedHeaders[it.key] = it.value }
         val ua = UrlResolve.pickUserAgent(kind, settings, userAgent)
@@ -96,28 +97,63 @@ class DownloadEngine(
         val cs = UrlResolve.chunkBytes(requestedChunk, kind)
 
         var total = resolved.size
-        if (total <= 0 && kind == UrlResolve.Kind.HTTP) {
-            val probe = downloader.probe(
-                url = resolved.url,
-                headers = mergedHeaders,
-                userAgent = ua,
-                skipHead = false
-            )
-            total = probe.totalSize
+        var resolvedName = resolved.name
+        if (kind == UrlResolve.Kind.HTTP) {
+            // Quark/OSS: probe Content-Disposition; always merge with URL query name.
+            val needSize = total <= 0
+            val forceName = fileName.isNullOrBlank() || UrlResolve.isQuarkOrCdnUrl(resolved.url)
+            var contentDisposition: String? = null
+            if (needSize || forceName) {
+                val probe = downloader.probe(
+                    url = resolved.url,
+                    headers = mergedHeaders,
+                    userAgent = ua,
+                    knownSize = if (needSize) -1L else total,
+                    skipHead = false,
+                    forceHeaders = forceName
+                )
+                if (needSize && probe.totalSize > 0) total = probe.totalSize
+                contentDisposition = probe.contentDisposition
+            }
+            if (fileName.isNullOrBlank()) {
+                resolvedName = UrlResolve.resolveHttpFileName(
+                    url = resolved.url,
+                    contentDisposition = contentDisposition,
+                    nameHint = null
+                )
+            } else if (UrlResolve.isQuarkOrCdnUrl(resolved.url)) {
+                // RPC/UI may pass a Latin-1 mojibake name — prefer URL/CD.
+                val better = UrlResolve.resolveHttpFileName(
+                    url = resolved.url,
+                    contentDisposition = contentDisposition,
+                    nameHint = null
+                )
+                val display = UrlResolve.displayFileName(fileName, resolved.url)
+                resolvedName = when {
+                    better.isNotBlank() && better != "download.bin" &&
+                        display == better -> better
+                    display != fileName && display.isNotBlank() -> display
+                    else -> UrlResolve.sanitizeFileName(
+                        UrlResolve.decodeEncodedName(fileName)
+                    )
+                }
+            }
         }
         if (total <= 0) {
             throw IllegalArgumentException("无法获取文件大小，请检查链接是否有效")
         }
 
-        val staging = File(FilePublish.stagingDir(context), "$id.bin")
+        // Direct-to-final path — stagingPath == filePath (no post-download full copy)
+        val uniqueName = uniqueFileName(dir, resolvedName)
+        val outFile = File(dir, uniqueName)
         val initialStatus = if (settings.autoStart) TaskStatus.PENDING else TaskStatus.PAUSED
         val entity = TaskEntity(
             id = id,
             url = resolved.url,
-            fileName = resolved.name,
-            saveDir = dir,
-            filePath = File(dir, resolved.name).absolutePath,
-            stagingPath = staging.absolutePath,
+            fileName = uniqueName,
+            saveDir = dir.absolutePath,
+            filePath = outFile.absolutePath,
+            stagingPath = outFile.absolutePath,
             totalSize = total,
             loaded = 0,
             speed = 0,
@@ -137,6 +173,21 @@ class DownloadEngine(
             schedule(entity.id)
         }
         return entity
+    }
+
+    private fun uniqueFileName(dir: File, desired: String): String {
+        val safe = UrlResolve.sanitizeFileName(desired.ifBlank { "download.bin" })
+        if (!File(dir, safe).exists()) return safe
+        val dot = safe.lastIndexOf('.')
+        val base = if (dot > 0) safe.substring(0, dot) else safe
+        val ext = if (dot > 0) safe.substring(dot) else ""
+        var i = 1
+        while (i < 10_000) {
+            val name = "$base ($i)$ext"
+            if (!File(dir, name).exists()) return name
+            i++
+        }
+        return "$base-${System.currentTimeMillis()}$ext"
     }
 
     private suspend fun prepareChunks(task: TaskEntity) {
@@ -232,6 +283,7 @@ class DownloadEngine(
         runtimes.remove(id)
         deleteSidecar(task)
         File(task.stagingPath).delete()
+        if (task.filePath != task.stagingPath) File(task.filePath).delete()
         db.taskDao().deleteChunks(id)
         val reset = task.copy(
             loaded = 0,
@@ -577,35 +629,23 @@ class DownloadEngine(
 
     private suspend fun finishTask(taskId: String) {
         val task = db.taskDao().getById(taskId) ?: return
+        // Brief MERGING for UI parity with mobile; file is already on final path.
         db.taskDao().upsert(task.copy(status = TaskStatus.MERGING.name, speed = 0))
 
-        val staging = File(task.stagingPath)
-        if (!staging.exists()) throw IllegalStateException("缺少下载文件")
-        val incomplete = db.taskDao().getChunks(taskId).any { !it.completed }
-        if (incomplete) throw IllegalStateException("文件大小校验失败")
-
-        val defaultDir = FilePublish.defaultDownloadDir(context).absolutePath
-        val published = if (
-            File(task.saveDir).absolutePath == defaultDir ||
-            task.saveDir.contains("Download", ignoreCase = true)
-        ) {
-            FilePublish.publishToDownloads(
-                context = context,
-                source = staging,
-                displayName = task.fileName,
-                subDir = null
-            )
-        } else {
-            val destDir = File(task.saveDir).apply { mkdirs() }
-            val dest = File(destDir, task.fileName)
-            FilePublish.moveOrCopy(staging, dest)
-            dest
+        val out = File(task.filePath.ifBlank { task.stagingPath })
+        if (!out.exists() || (task.totalSize > 0 && out.length() != task.totalSize)) {
+            throw IllegalStateException("文件大小校验失败")
         }
+        val incomplete = db.taskDao().getChunks(taskId).any { !it.completed }
+        if (incomplete) throw IllegalStateException("仍有未完成分片")
+
+        FilePublish.scanFile(context, out)
 
         db.taskDao().upsert(
             task.copy(
                 status = TaskStatus.COMPLETED.name,
-                filePath = published.absolutePath,
+                filePath = out.absolutePath,
+                stagingPath = out.absolutePath,
                 loaded = task.totalSize,
                 completedAt = System.currentTimeMillis(),
                 errorMsg = null,
@@ -613,7 +653,6 @@ class DownloadEngine(
             )
         )
         deleteSidecar(task)
-        if (staging.exists()) staging.delete()
 
         if (settingsRepo.current().notifyOnComplete) {
             DownloadNotifier(context).notifyCompleted(task.fileName)

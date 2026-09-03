@@ -48,6 +48,7 @@ class DownloadRepository(
     fun initialize() {
         startDownloadService()
         scope.launch {
+            settingsRepo.migrateRemoteAccessDefault()
             settingsRepo.settingsFlow.collect { settings ->
                 syncRpc(settings)
             }
@@ -151,6 +152,16 @@ class DownloadRepository(
                 skipHead = false
             )
             size = probe.totalSize
+            if (nameHint == null) {
+                probe.suggestedName?.takeIf { it.isNotBlank() }?.let {
+                    return mapOf(
+                        "url" to resolved.url,
+                        "size" to size,
+                        "name" to it,
+                        "kind" to if (resolved.kind == UrlResolve.Kind.BAIDU) "baidu" else "http"
+                    )
+                }
+            }
         }
         return mapOf(
             "url" to resolved.url,

@@ -19,6 +19,15 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun current(): AppSettings = settingsFlow.first()
 
+    /** One-shot: turn on LAN/remote RPC for installs that still have the old default off. */
+    suspend fun migrateRemoteAccessDefault() {
+        context.dataStore.edit { prefs ->
+            if (prefs[MIGRATE_REMOTE_DEFAULT] == true) return@edit
+            prefs[RPC_REMOTE] = true
+            prefs[MIGRATE_REMOTE_DEFAULT] = true
+        }
+    }
+
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         val next = transform(current()).normalized()
         context.dataStore.edit { prefs ->
@@ -53,7 +62,7 @@ class SettingsRepository(private val context: Context) {
         defaultHeadersJson = this[HEADERS_JSON] ?: "{}",
         rpcEnabled = this[RPC_ENABLED] ?: true,
         rpcPort = this[RPC_PORT] ?: AppSettings.DEFAULT_RPC_PORT,
-        rpcRemote = this[RPC_REMOTE] ?: false,
+        rpcRemote = this[RPC_REMOTE] ?: true,
         rpcToken = this[RPC_TOKEN] ?: ""
     ).normalized()
 
@@ -71,6 +80,7 @@ class SettingsRepository(private val context: Context) {
         private val RPC_PORT = intPreferencesKey("rpc_port")
         private val RPC_REMOTE = booleanPreferencesKey("rpc_remote")
         private val RPC_TOKEN = stringPreferencesKey("rpc_token")
+        private val MIGRATE_REMOTE_DEFAULT = booleanPreferencesKey("migrate_remote_default_v12")
     }
 }
 

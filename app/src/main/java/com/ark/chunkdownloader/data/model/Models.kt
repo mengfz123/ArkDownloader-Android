@@ -82,7 +82,7 @@ data class AppSettings(
     val defaultHeadersJson: String = "{}",
     val rpcEnabled: Boolean = true,
     val rpcPort: Int = DEFAULT_RPC_PORT,
-    val rpcRemote: Boolean = false,
+    val rpcRemote: Boolean = true,
     val rpcToken: String = ""
 ) {
     val downloadDir: String get() = defaultSaveDir
@@ -92,7 +92,7 @@ data class AppSettings(
 
     companion object {
         const val APP_NAME = "ArkDownloader"
-        const val VERSION = "1.0.6"
+        const val VERSION = "1.0.12"
         const val MIN_CHUNK_MB = 1
         const val MAX_CHUNK_MB = 5
         const val MIN_CHUNK = MIN_CHUNK_MB * 1024 * 1024

@@ -6,6 +6,7 @@ import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import com.ark.chunkdownloader.util.UrlResolve
 import java.io.File
 import java.io.InterruptedIOException
 import java.io.RandomAccessFile
@@ -25,22 +26,46 @@ class ChunkDownloader(
     data class ProbeResult(
         val totalSize: Long,
         val supportsRange: Boolean,
-        val statusCode: Int
+        val statusCode: Int,
+        val suggestedName: String? = null,
+        val contentDisposition: String? = null
     )
 
     /**
      * Prefer Range GET probe (Baidu CDN often rejects HEAD).
-     * Skip network when [knownSize] > 0.
+     * When [forceHeaders] is true, still hit the network even if [knownSize] > 0
+     * (needed to read Content-Disposition for Quark / OSS filenames).
      */
     fun probe(
         url: String,
         headers: Map<String, String>,
         userAgent: String?,
         knownSize: Long = -1L,
-        skipHead: Boolean = false
+        skipHead: Boolean = false,
+        forceHeaders: Boolean = false
     ): ProbeResult {
-        if (knownSize > 0) {
+        if (knownSize > 0 && !forceHeaders) {
             return ProbeResult(knownSize, supportsRange = true, statusCode = 200)
+        }
+        fun fromResponse(resp: okhttp3.Response, fallbackLen: Long): ProbeResult {
+            val cd = resp.header("Content-Disposition")
+                ?: resp.header("content-disposition")
+            val name = UrlResolve.resolveHttpFileName(url, cd, null)
+                .takeIf { it.isNotBlank() && it != "download.bin" }
+            val len = when {
+                fallbackLen > 0 -> fallbackLen
+                resp.code == 206 -> parseContentRangeTotal(resp.header("Content-Range"))
+                else -> resp.header("Content-Length")?.toLongOrNull() ?: -1L
+            }
+            val accept = resp.code == 206 ||
+                resp.header("Accept-Ranges")?.contains("bytes", ignoreCase = true) == true
+            return ProbeResult(
+                totalSize = if (knownSize > 0) knownSize else len,
+                supportsRange = accept,
+                statusCode = resp.code,
+                suggestedName = name,
+                contentDisposition = cd
+            )
         }
         if (!skipHead) {
             val headReq = buildRequest(url, headers, userAgent, range = null)
@@ -48,9 +73,12 @@ class ChunkDownloader(
                 client.newCall(headReq).execute().use { resp ->
                     if (resp.isSuccessful) {
                         val len = resp.header("Content-Length")?.toLongOrNull() ?: -1L
-                        val accept = resp.header("Accept-Ranges")
-                            ?.contains("bytes", ignoreCase = true) == true
-                        if (len > 0) return ProbeResult(len, accept || true, resp.code)
+                        val result = fromResponse(resp, len)
+                        if (result.totalSize > 0 || !result.suggestedName.isNullOrBlank() || forceHeaders) {
+                            if (result.totalSize > 0 || !result.suggestedName.isNullOrBlank()) {
+                                return result
+                            }
+                        }
                     }
                 }
             } catch (_: Exception) {
@@ -59,13 +87,7 @@ class ChunkDownloader(
         }
         val getReq = buildRequest(url, headers, userAgent, 0L to 0L)
         client.newCall(getReq).execute().use { resp ->
-            val len = when {
-                resp.code == 206 -> parseContentRangeTotal(resp.header("Content-Range"))
-                else -> resp.header("Content-Length")?.toLongOrNull() ?: -1L
-            }
-            val accept = resp.code == 206 ||
-                resp.header("Accept-Ranges")?.contains("bytes", ignoreCase = true) == true
-            return ProbeResult(len, accept, resp.code)
+            return fromResponse(resp, -1L)
         }
     }
 

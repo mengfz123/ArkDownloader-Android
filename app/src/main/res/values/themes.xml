@@ -2,7 +2,7 @@
 <resources>
     <style name="Theme.ArkChunkDownloader" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#0A0D12</item>
-        <item name="android:windowBackground">#0A0D12</item>
+        <item name="android:navigationBarColor">#1F1F1F</item>
+        <item name="android:windowBackground">#1F1F1F</item>
     </style>
 </resources>

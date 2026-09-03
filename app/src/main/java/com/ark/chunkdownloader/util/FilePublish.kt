@@ -1,65 +1,85 @@
 package com.ark.chunkdownloader.util
 
 import android.content.Context
+import android.content.Intent
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Environment
+import androidx.core.content.FileProvider
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 
 object FilePublish {
-    fun defaultDownloadDir(context: Context): File {
+    fun defaultDownloadDir(@Suppress("UNUSED_PARAMETER") context: Context): File {
         val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         return File(public, "ArkDownloads").apply { mkdirs() }
     }
 
     fun stagingDir(context: Context): File =
-        File(context.getExternalFilesDir(null), "ArkChunkParts").apply { mkdirs() }
+        File(context.getExternalFilesDir(null), "ArkDownloads").apply { mkdirs() }
 
-    /** Prefer [preferred] if writable; otherwise public Downloads/ArkDownloads. */
     fun resolveWritableDir(context: Context, preferred: String?): File {
-        if (!preferred.isNullOrBlank()) {
-            val dir = File(preferred)
-            if ((dir.exists() || dir.mkdirs()) && dir.canWrite()) return dir
+        val candidates = buildList {
+            preferred?.takeIf { it.isNotBlank() }?.let { add(File(it)) }
+            add(defaultDownloadDir(context))
+            add(stagingDir(context))
         }
-        return defaultDownloadDir(context)
+        for (dir in candidates) {
+            runCatching {
+                dir.mkdirs()
+                if (dir.isDirectory && dir.canWrite()) {
+                    val probe = File(dir, ".ark_write_probe")
+                    if (probe.createNewFile() || probe.exists()) {
+                        probe.delete()
+                        return dir
+                    }
+                }
+            }
+        }
+        return stagingDir(context).also { it.mkdirs() }
     }
 
-    /**
-     * Publish [source] into Downloads/ArkDownloads (or [subDir]).
-     * Prefers atomic move; falls back to copy. Scans once — no MediaStore double-write.
-     */
-    fun publishToDownloads(context: Context, source: File, displayName: String, subDir: String?): File {
-        val targetDir = if (!subDir.isNullOrBlank()) {
-            File(defaultDownloadDir(context), subDir.trim('/')).apply { mkdirs() }
-        } else {
-            defaultDownloadDir(context)
-        }
-        val dest = File(targetDir, displayName)
-        moveOrCopy(source, dest)
+    fun scanFile(context: Context, file: File) {
+        if (!file.exists()) return
         MediaScannerConnection.scanFile(
             context,
-            arrayOf(dest.absolutePath),
+            arrayOf(file.absolutePath),
             arrayOf("application/octet-stream"),
             null
         )
-        return dest
     }
 
-    /** Move when same volume; otherwise copy+delete. */
-    fun moveOrCopy(source: File, dest: File) {
-        dest.parentFile?.mkdirs()
-        if (dest.exists()) dest.delete()
-        if (source.renameTo(dest)) return
-        try {
-            Files.move(source.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            return
-        } catch (_: Exception) {
-            // cross-device — copy
+    fun openFile(context: Context, file: File): Boolean {
+        if (!file.exists()) return false
+        return runCatching {
+            val uri: Uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, guessMime(file.name))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(
+                Intent.createChooser(intent, "打开文件").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun guessMime(name: String): String {
+        val lower = name.lowercase()
+        return when {
+            lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") ||
+                lower.endsWith(".avi") || lower.endsWith(".mov") -> "video/*"
+            lower.endsWith(".mp3") || lower.endsWith(".flac") || lower.endsWith(".m4a") ||
+                lower.endsWith(".wav") -> "audio/*"
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") ||
+                lower.endsWith(".webp") || lower.endsWith(".gif") -> "image/*"
+            lower.endsWith(".pdf") -> "application/pdf"
+            lower.endsWith(".zip") || lower.endsWith(".rar") || lower.endsWith(".7z") -> "application/zip"
+            lower.endsWith(".txt") || lower.endsWith(".log") || lower.endsWith(".md") -> "text/plain"
+            else -> "*/*"
         }
-        source.inputStream().use { input ->
-            dest.outputStream().use { output -> input.copyTo(output, 512 * 1024) }
-        }
-        source.delete()
     }
 }

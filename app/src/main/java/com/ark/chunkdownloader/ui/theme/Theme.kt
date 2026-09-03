@@ -8,18 +8,27 @@ import androidx.compose.ui.graphics.Color
 private val DarkColors = darkColorScheme(
     primary = ArkPrimary,
     onPrimary = Color.White,
+    primaryContainer = ArkPrimarySoft,
+    onPrimaryContainer = ArkPrimary,
+    secondary = ArkSub,
+    onSecondary = ArkBg,
     background = ArkBg,
     onBackground = ArkText,
     surface = ArkCard,
     onSurface = ArkText,
-    secondary = ArkSub,
-    error = ArkError
+    surfaceVariant = ArkCard2,
+    onSurfaceVariant = ArkSub,
+    outline = ArkBorder,
+    error = ArkError,
+    onError = Color.White,
+    errorContainer = ArkErrorSoft
 )
 
 @Composable
 fun ArkTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColors,
+        typography = ArkTypography,
         content = content
     )
 }

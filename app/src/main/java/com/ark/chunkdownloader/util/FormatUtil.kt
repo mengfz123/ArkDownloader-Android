@@ -14,6 +14,16 @@ object FormatUtil {
 
     fun formatSpeed(bytesPerSec: Long): String = "${formatBytes(bytesPerSec)}/s"
 
+    fun formatEta(seconds: Double): String {
+        if (!seconds.isFinite() || seconds < 0) return "—"
+        val s = seconds.toLong()
+        if (s < 60) return "${s}s"
+        val m = s / 60
+        if (m < 60) return "${m}m ${s % 60}s"
+        val h = m / 60
+        return "${h}h ${m % 60}m"
+    }
+
     fun inferFileName(url: String): String = UrlResolve.inferFileName(url)
 
     fun parseHeaders(json: String): Map<String, String> {
